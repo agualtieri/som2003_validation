@@ -1,0 +1,32 @@
+{
+    "id": "E8413987",
+    "path": null,
+    "project_path": null,
+    "type": "r_dataframe",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1632319181035.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "expression": "issues",
+        "caption": "issues",
+        "totalObservations": 185,
+        "displayedObservations": 185,
+        "variables": 5,
+        "cacheKey": "F0BDE168",
+        "object": "issues",
+        "environment": "",
+        "contentUrl": "grid_resource/gridviewer.html?env=&obj=issues&cache_key=F0BDE168&max_cols=50",
+        "preview": 0
+    },
+    "folds": "",
+    "lastKnownWriteTime": 0,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1632319181035,
+    "read_only": false,
+    "read_only_alternatives": []
+}

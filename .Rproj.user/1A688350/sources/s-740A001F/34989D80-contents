@@ -1,0 +1,412 @@
+---
+title: "JMMI Scripts"
+output: html_document
+
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# libraries
+library(tidyverse)
+library(reshape)
+library(butteR)
+library(openxlsx)
+
+# load dataset
+data <- read.xlsx("./inputs/afg_data_nov.xlsx", detectDates = TRUE)
+
+month1 <- read.xlsx("./inputs/afg_data_nov.xlsx", detectDates = TRUE)
+month2 <- read.xlsx("./inputs/afg_data_dec.xlsx", detectDates = TRUE)
+
+# load sources
+source("./R/find_outliers.R")
+source("./R/item_boxplots.R")
+source("./R/descriptive_stats.R")
+source("./R/minimum_standards.R")
+
+
+
+```
+
+# Introduction
+
+This (living) document will provide users with a list of scripts useful for conducting basic cleaning and analysis of JMMI data. This is more a repository of code and useful functions rather than a full working package. The document is divided into two sections: Cleaning and Analysis. 
+
+The first section, cleaning, will focus on a few packages/chunks of code, the user can employ during the data cleaning phase. These include, duplicates correction, outliers detection, and min and max analysis.
+
+The second section, analysis, focuses on the calculations needed to compute aggregated median prices (following the median-of-medians methodology), SMEB and MEB aggregations, and trend analysis.
+
+For further inquires or if you would like to have different type of checks included, please reach out to Chris (chris.paci@reach-initiative.org) and/or Alberto (alberto.gualtieri@impact-initiatives.org).
+
+# Data Cleaning
+
+### Minimum Standards
+
+The "minimum_standards" function allows you to quickly check if you have reached the minimum of three quotation per item per aggregation variable. The arguments needed ar three: 
+
+- the dataset 
+- an aggregation variable
+- the vector of items quotations
+
+The function outputs a table with the number of quotation for each item aggregated by the aggregation variable of your choice. If you want you can %>% a filter to show only those items who did not met the minimum standards.
+
+```{r minimum standards, message = FALSE, warning = FALSE}
+minium_standards(data, "afg_dist", ends_with("_price")) %>% filter(minimum_standards == "requirement not met")
+
+```
+
+### Outliers detection
+
+The function "find_outliers" checks for normal outliers and also log distributed outliers. The only argument needed for this function is the dataset. The output is a table with the outlier value, the index number, and the variable name. As show in the example below, you can mutate and add the uuid and an area of interest if needed.
+
+```{r outliers detection}
+outliers_table <- find_outliers(data)
+
+# Add uuid and location to the output
+outliers_table <- outliers_table %>% mutate(uuid= data[.$index,"X_uuid",drop=T],
+                                            area = data[.$index,"afg_dist",drop=T])
+
+head(outliers_table, 3)
+
+```
+
+
+
+### Plotting Item prices using boxplots
+
+The function below will help with visualizing the prices using boxplots. You can find it inside the "R" folder. Box plots visually show the distribution of numerical data and skewness through displaying the data quartiles (or percentiles) and averages. 
+
+Hot to read a boxplot: box plots show the five-number summary of a set of data: including the minimum score, first (lower) quartile, median, third (upper) quartile, and maximum score.
+
+![](images/boxplot.png)
+
+If you want to read more about boxplot you can find a guide [here](https://www.simplypsychology.org/boxplots.html)
+
+
+```{r boxplots, message = FALSE, warning = FALSE}
+item_boxplots(data, "afg_prov", ends_with("_price"))
+
+```
+
+### Descriptive statistics
+
+If you want to have a quick look at general descriptive statistics, the function "descriptive_stats" will show you min, max, and median values, as well as, first and third quartile values. The arguments needed are
+
+- the dataset
+- the aggregation variable 
+- the vector of price. 
+
+Please make sure that all prices are numeric, if any of them are characters the function will return an error.
+
+```{r descripive statistics, message=FALSE, warning=FALSE}
+vec_items <- c("wheat_imported_price", "local_rice_price", "sugar_price")
+
+descriptive_stats(data, "afg_region", vec_items )
+
+```
+
+
+# Data Analysis
+
+### Median aggregation
+The first step to calculate the SMEB value is to aggregate prices using the median-of-medians methodology. This methodology ensures a balanced aggregation reducing the variance created by having markets largely more surveyed compared to others.
+
+```{r median aggregation, message = FALSE, warning = FALSE}
+
+# Aggregation by region, province, district, location, and market (final aggregation level is location_coty)
+median_items <- data %>%  
+                # select only the items and aggregation columns
+                select("afg_region", "afg_prov", "afg_dist", "location_city", ends_with("_price")) %>%                                       # group by the selected aggregation variables
+                group_by(afg_region, afg_prov, afg_dist, location_city) %>%
+                # summarise everything by medians
+                summarise_all(funs(median(., na.rm = TRUE)))                    
+
+
+# Aggregation to district level using medians-of-medians
+median_items_district <- median_items %>%                                                                            
+                         select("afg_region", "afg_prov", "afg_dist", ends_with("_price")) %>%  
+                         group_by(afg_region, afg_prov, afg_dist) %>%
+                         summarise_all(funs(median(., na.rm = TRUE)))  
+
+
+# Aggregation to province level using medians-of-medians
+median_items_province <- median_items_district %>%                                                                           
+                         select("afg_region", "afg_prov", ends_with("_price")) %>%  
+                         group_by(afg_region, afg_prov) %>%
+                         summarise_all(funs(median(., na.rm = TRUE)))  
+
+print(head(median_items_province, 3)) 
+
+
+# Aggregation to regional level using medians-of-medians
+median_items_region <- median_items_province %>%                                                                           
+                         select("afg_region", ends_with("_price")) %>%  
+                         group_by(afg_region) %>%
+                         summarise_all(funs(median(., na.rm = TRUE)))  
+
+
+
+```
+
+### SMEB calculation
+
+Below we show a few lines of code you can use to quickly calculate the SMEB value after having calculated the median price per item. The calculation will be different based on the weights and the items included in the SMEB. **The dataset and weights used are only an example and do not wish to represent any particular country JMMI.**
+
+The coded is divided in two parts: the first part shows how to calculate the MEB value when you have no NAs across prices. The second parts shows you how to fill the NAs with the median value of your choice. For this example I used regional level medians, but you are free to change the "group_by" according to your needs.
+
+Both outputs are tables.
+
+```{r smeb calculation, message = FALSE, warning = FALSE}
+# This piece of code will calculate the MEB at the district level.
+
+# Sometimes MEBs are composed of a mix between monthly collected items and fixed prices items
+median_items_district$underwear <- 80
+median_items_district$healthcare <- 667
+median_items_district$shelter <- 5850
+
+# Calculate MEBs 
+meb_district <- median_items_district %>% 
+                                  mutate(pulses_all_price = pulses_lentils_price +
+                                                             pulses_beans_price +
+                                                             pulses_split_peas_price) %>%
+  
+                                  select("afg_region", "afg_prov", "afg_dist",
+                                         "wheat_imported_price", "local_rice_price",
+                                         "veg_oil_price", "salt_price", "sugar_price",
+                                         "pulses_all_price", "soap_price", "cotton_cloth_price",
+                                         "toothbrush_adult_price", "toothpaste_price", "sanitary_pad_price",
+                                         "underwear", "healthcare", "shelter") %>%
+  
+                                  mutate(
+                                        meb_food = (wheat_imported_price * 60) +
+                                                    (local_rice_price * 29) +
+                                                    (veg_oil_price * 6) +
+                                                    (pulses_all_price * 14) +
+                                                    (salt_price * 1) +
+                                                    (sugar_price * 6),
+                                        
+                                        meb_nfi = (soap_price * 18) +
+                                                   (cotton_cloth_price * 2) +
+                                                   (toothbrush_adult_price * 3) +
+                                                   (toothpaste_price * 2) +
+                                                   (sanitary_pad_price + underwear),
+                                        
+                                        meb_total = (meb_food + meb_nfi + healthcare + shelter)
+                                  )
+                                
+
+
+# If NAs are present the following code will input the median value of the district of govenorate of choice to fill the blank
+median_items_district_NoNAs <- median_items_district %>% 
+                              select("afg_dist",
+                                     "wheat_imported_price", "local_rice_price",
+                                     "veg_oil_price", "salt_price", "sugar_price",
+                                     "pulses_lentils_price", "pulses_beans_price", "pulses_split_peas_price",
+                                     "soap_price", "cotton_cloth_price",
+                                     "toothbrush_adult_price", "toothpaste_price", "sanitary_pad_price",
+                                     "underwear", "healthcare", "shelter") %>%
+  
+                               # the group_by can be changed based on what median value you want to input
+                               group_by(afg_region) %>% 
+  
+                              mutate(
+                              wheat_imported_price= ifelse(is.na(wheat_imported_price), median(wheat_imported_price, na.rm=T), wheat_imported_price),
+                              local_rice_price= ifelse(is.na(local_rice_price), median(local_rice_price, na.rm=T), local_rice_price),
+                              veg_oil_price= ifelse(is.na(veg_oil_price), median(veg_oil_price, na.rm=T), veg_oil_price),
+                              salt_price= ifelse(is.na(salt_price), median(salt_price, na.rm=T), salt_price),
+                              sugar_price= ifelse(is.na(sugar_price), median(sugar_price, na.rm=T), sugar_price),
+                              pulses_lentils_price= ifelse(is.na(pulses_lentils_price), median(pulses_lentils_price, na.rm=T), pulses_lentils_price),
+                              pulses_beans_price= ifelse(is.na(pulses_beans_price), median(pulses_beans_price, na.rm=T), pulses_beans_price),
+                              pulses_split_peas_price= ifelse(is.na(pulses_split_peas_price), median(pulses_split_peas_price, na.rm=T), pulses_split_peas_price),
+                              soap_price= ifelse(is.na(soap_price), median(soap_price, na.rm=T), soap_price),
+                              cotton_cloth_price= ifelse(is.na(cotton_cloth_price), median(cotton_cloth_price, na.rm=T), cotton_cloth_price),
+                              toothbrush_adult_price= ifelse(is.na(toothbrush_adult_price), median(toothbrush_adult_price, na.rm=T),    toothbrush_adult_price),
+                              toothpaste_price= ifelse(is.na(toothpaste_price), median(toothpaste_price, na.rm=T), toothpaste_price),
+                              sanitary_pad_price= ifelse(is.na(sanitary_pad_price), median(sanitary_pad_price, na.rm=T), sanitary_pad_price)
+                              )
+
+
+## Calculate MEBs
+meb_district_NoNAs <- median_items_district_NoNAs %>% 
+                                  mutate(pulses_all_price = pulses_lentils_price +
+                                                            pulses_beans_price +
+                                                            pulses_split_peas_price) %>%
+  
+                                  select("afg_region", "afg_prov", "afg_dist",
+                                         "wheat_imported_price", "local_rice_price",
+                                         "veg_oil_price", "salt_price", "sugar_price",
+                                         "pulses_all_price", "soap_price", "cotton_cloth_price",
+                                         "toothbrush_adult_price", "toothpaste_price", "sanitary_pad_price",
+                                         "underwear", "healthcare", "shelter") %>%
+  
+                                  mutate(
+                                        meb_food = (wheat_imported_price * 60) +
+                                                    (local_rice_price * 29) +
+                                                    (veg_oil_price * 6) +
+                                                    (pulses_all_price * 14) +
+                                                    (salt_price * 1) +
+                                                    (sugar_price * 6),
+                                        
+                                        meb_nfi = (soap_price * 18) +
+                                                   (cotton_cloth_price * 2) +
+                                                   (toothbrush_adult_price * 3) +
+                                                   (toothpaste_price * 2) +
+                                                   (sanitary_pad_price + underwear),
+                                        
+                                        meb_total = (meb_food + meb_nfi + healthcare + shelter)
+                                  )
+
+
+```
+
+### Trend analysis
+Another type of analysis often presented is the month-to-month percentage change of prices and smeb/meb values. The first part of the analysis is similar to what shown before besides that the dataset used would contain price data for two consecutive months. Here a step-by-step procedure:
+
+- Step 1: rbind the two dataset together if necessary
+- Step 2: aggregate to medians
+- Step 3: calculate the smeb/meb values
+- Step 4: run the percentage change function and save the results as a table
+
+The percentage change function is take from the butteR package developed by Zack Arno. You should download the package and load the library before running the function.
+
+
+```{r trend analysis, message = FALSE, warning = FALSE}
+# If you don't have butteR installed on your laptop, download it from GitHub and load the library
+# devtools::install_github("zackarno/butteR")
+# library(butteR)
+
+
+# After loading the datset from two consecutive months, we rbind them together
+data_long <- rbind(month1, month2)
+
+# Create the comparison column
+data_long$month <- lubridate::month(data_long$date, label = TRUE)
+
+# Aggregate prices to district level
+data_long_medians <- data_long  %>%                                                                            
+                         select("month","afg_region", "afg_prov", "afg_dist", ends_with("_price")) %>%  
+                         group_by(month, afg_region, afg_prov, afg_dist) %>%
+                         summarise_all(funs(median(., na.rm = TRUE)))  
+
+
+# We aggregated to medians and then calculate the smeb following the method shown above:
+data_long_medians$underwear <- 80
+data_long_medians$healthcare <- 667
+data_long_medians$shelter <- 5850
+
+data_long_medians <- data_long_medians %>% 
+                               # remember to include the month variable
+                               select("month", "afg_region", "afg_prov", "afg_dist",
+                                     "wheat_imported_price", "local_rice_price",
+                                     "veg_oil_price", "salt_price", "sugar_price",
+                                     "pulses_lentils_price", "pulses_beans_price", "pulses_split_peas_price",
+                                     "soap_price", "cotton_cloth_price",
+                                     "toothbrush_adult_price", "toothpaste_price", "sanitary_pad_price",
+                                     "underwear", "healthcare", "shelter") %>%
+  
+                               # the group_by can be changed based on what median value you want to input - here I use region
+                               group_by(afg_region) %>% 
+  
+                              mutate(
+                              wheat_imported_price= ifelse(is.na(wheat_imported_price), median(wheat_imported_price, na.rm=T), wheat_imported_price),
+                              local_rice_price= ifelse(is.na(local_rice_price), median(local_rice_price, na.rm=T), local_rice_price),
+                              veg_oil_price= ifelse(is.na(veg_oil_price), median(veg_oil_price, na.rm=T), veg_oil_price),
+                              salt_price= ifelse(is.na(salt_price), median(salt_price, na.rm=T), salt_price),
+                              sugar_price= ifelse(is.na(sugar_price), median(sugar_price, na.rm=T), sugar_price),
+                              pulses_lentils_price= ifelse(is.na(pulses_lentils_price), median(pulses_lentils_price, na.rm=T), pulses_lentils_price),
+                              pulses_beans_price= ifelse(is.na(pulses_beans_price), median(pulses_beans_price, na.rm=T), pulses_beans_price),
+                              pulses_split_peas_price= ifelse(is.na(pulses_split_peas_price), median(pulses_split_peas_price, na.rm=T), pulses_split_peas_price),
+                              soap_price= ifelse(is.na(soap_price), median(soap_price, na.rm=T), soap_price),
+                              cotton_cloth_price= ifelse(is.na(cotton_cloth_price), median(cotton_cloth_price, na.rm=T), cotton_cloth_price),
+                              toothbrush_adult_price= ifelse(is.na(toothbrush_adult_price), median(toothbrush_adult_price, na.rm=T),    toothbrush_adult_price),
+                              toothpaste_price= ifelse(is.na(toothpaste_price), median(toothpaste_price, na.rm=T), toothpaste_price),
+                              sanitary_pad_price= ifelse(is.na(sanitary_pad_price), median(sanitary_pad_price, na.rm=T), sanitary_pad_price)
+                              )
+
+
+## Calculate MEBs
+meb_long_district <- data_long_medians %>% 
+                                  mutate(pulses_all_price = pulses_lentils_price +
+                                                            pulses_beans_price +
+                                                            pulses_split_peas_price) %>%
+                                  # remember to include the date variable
+                                  select("month", "afg_region", "afg_prov", "afg_dist",
+                                         "wheat_imported_price", "local_rice_price",
+                                         "veg_oil_price", "salt_price", "sugar_price",
+                                         "pulses_all_price", "soap_price", "cotton_cloth_price",
+                                         "toothbrush_adult_price", "toothpaste_price", "sanitary_pad_price",
+                                         "underwear", "healthcare", "shelter") %>%
+  
+                                  group_by(afg_dist) %>%
+  
+                                  mutate(
+                                        meb_food = (wheat_imported_price * 60) +
+                                                    (local_rice_price * 29) +
+                                                    (veg_oil_price * 6) +
+                                                    (pulses_all_price * 14) +
+                                                    (salt_price * 1) +
+                                                    (sugar_price * 6),
+                                        
+                                        meb_nfi = (soap_price * 18) +
+                                                   (cotton_cloth_price * 2) +
+                                                   (toothbrush_adult_price * 3) +
+                                                   (toothpaste_price * 2) +
+                                                   (sanitary_pad_price + underwear),
+                                        
+                                        meb_total = (meb_food + meb_nfi + healthcare + shelter)
+                                  )
+
+
+
+# Run the percentag change formula taken from the butteR package
+
+# If needed download the latest version of th butteR package and load the library
+# devtools::install_github("zackarno/butteR")
+# library(butteR)
+
+# conver month date back to numeric (needed for the function)
+meb_long_district$month <- as.numeric(meb_long_district$month)
+
+pct_change_district <- pct_change_by_groups_all_numerics(meb_long_district, group_var = "afg_dist", time_id = "month")
+
+print(head(pct_change_district , 5))
+```
+
+### Items Medians Boxplots Formatted
+
+Data visualization is also a prominent part of market monitoring analysis. The chart used the most are boxplots. As shown before, boxplot are useful as they are able to concisely present the most important statistics of a numerical value. 
+
+The function below will help you in creating boxplot that are ready to be added to the factsheets. 
+
+***NB: if the prices have large outliers, the min and max values won't show at the top of the whiskers.***
+
+```{r items medians boxplot formatted, message = FALSE, warning = FALSE}
+# You will need the library plyr to run the boxplot function.
+library(plyr)
+
+# Select only items you want to show in the boxplot and the aggregation variable. I.e Food items.
+food_medians <- median_items_district %>% ungroup() %>%
+                                          select("afg_dist", "wheat_imported_price", "local_rice_price",
+                                                 "veg_oil_price", "salt_price", "sugar_price",
+                                                 "pulses_lentils_price", "pulses_beans_price", "pulses_split_peas_price")
+
+# Rename column names - "\n" ensures that there is a linebreak in the graph's x-axis label
+names(food_medians)[names(food_medians) == "wheat_imported_price"] <- "Wheat\nImported"
+names(food_medians)[names(food_medians) == "local_rice_price"] <- "Rice\nLocal"
+names(food_medians)[names(food_medians) == "veg_oil_price"] <- "Vegetable\nOil"
+names(food_medians)[names(food_medians) == "salt_price"] <- "Salt"
+names(food_medians)[names(food_medians) == "sugar_price"] <- "Sugar"
+names(food_medians)[names(food_medians) == "pulses_lentils_price"] <- "Lentils"
+names(food_medians)[names(food_medians) == "pulses_beans_price"] <- "Beans"
+names(food_medians)[names(food_medians) == "pulses_split_peas_price"] <- "Split Peas"
+
+# Produce the plots
+items_vec <- c("Wheat\nImported", "Rice\nLocal", "Vegetable\nOil", "Salt",
+               "Sugar", "Lentils", "Beans", "Split Peas")
+
+# Produce plots
+item_boxplots_formatted(food_medians, "afg_dist", items_vec)
+
+```
