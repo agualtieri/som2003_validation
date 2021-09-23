@@ -1,0 +1,32 @@
+{
+    "id": "520A5DAA",
+    "path": null,
+    "project_path": null,
+    "type": "r_dataframe",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1632383770456.0,
+    "source_on_save": false,
+    "relative_order": 3,
+    "properties": {
+        "expression": "log.1",
+        "caption": "log.1",
+        "totalObservations": 172,
+        "displayedObservations": 172,
+        "variables": 6,
+        "cacheKey": "688B9872",
+        "object": "log.1",
+        "environment": "",
+        "contentUrl": "grid_resource/gridviewer.html?env=&obj=log.1&cache_key=688B9872&max_cols=50",
+        "preview": 0
+    },
+    "folds": "",
+    "lastKnownWriteTime": 140344568157064,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1632383770456,
+    "read_only": false,
+    "read_only_alternatives": []
+}

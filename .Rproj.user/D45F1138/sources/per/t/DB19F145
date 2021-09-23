@@ -1,0 +1,32 @@
+{
+    "id": "DB19F145",
+    "path": null,
+    "project_path": null,
+    "type": "r_dataframe",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1632383459384.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "expression": "log.i",
+        "caption": "log.i",
+        "totalObservations": 889,
+        "displayedObservations": 889,
+        "variables": 6,
+        "cacheKey": "D9A155B2",
+        "object": "log.i",
+        "environment": "",
+        "contentUrl": "grid_resource/gridviewer.html?env=&obj=log.i&cache_key=D9A155B2&max_cols=50",
+        "preview": 0
+    },
+    "folds": "",
+    "lastKnownWriteTime": 3621515552935196996,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1632383459384,
+    "read_only": false,
+    "read_only_alternatives": []
+}
